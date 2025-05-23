@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Маркерная доска</title>
+  <style>
+    canvas {
+      border: 1px solid #ccc;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <h2>Онлайн-доска</h2>
+  <canvas id="board" width="800" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+
+    const ws = new WebSocket('ws://localhost:8080');
+
+    canvas.addEventListener('mousedown', () => drawing = true);
+    canvas.addEventListener('mouseup', () => drawing = false);
+    canvas.addEventListener('mouseleave', () => drawing = false);
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!drawing) return;
+      const x = e.offsetX;
+      const y = e.offsetY;
+      ctx.lineTo(x, y);
+      ctx.stroke();
+
+      // Отправка координат другим
+      ws.send(JSON.stringify({ x, y }));
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      const x = e.offsetX;
+      const y = e.offsetY;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      // Отправка начала линии
+      ws.send(JSON.stringify({ x, y, begin: true }));
+    });
+
+    // Приём координат от других
+    ws.onmessage = (msg) => {
+      const data = JSON.parse(msg.data);
+      if (data.begin) {
+        ctx.beginPath();
+        ctx.moveTo(data.x, data.y);
+      } else {
+        ctx.lineTo(data.x, data.y);
+        ctx.stroke();
+      }
+    };
+  </script>
+</body>
+</html>
