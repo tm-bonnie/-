@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Маркерная доска</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; }
+    #toolbar {
+      background: #f9f9f9;
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #canvas {
+      flex: 1;
+      display: block;
+      touch-action: none;
+      background: white;
+      cursor: crosshair;
+    }
+    button { padding: 5px 10px; }
+  </style>
+</head>
+<body>
+
+  <div id="toolbar">
+    <button onclick="clearCanvas()">Очистить</button>
+    <button onclick="exportPNG()">Сохранить PNG</button>
+    <button onclick="exportPDF()">Сохранить PDF</button>
+    <label>Цвет:
+      <input type="color" id="colorPicker" value="#000000">
+    </label>
+    <label>Толщина:
+      <input type="range" id="brushSize" min="1" max="20" value="3">
+    </label>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const colorPicker = document.getElementById('colorPicker');
+    const brushSize = document.getElementById('brushSize');
+    const toolbarHeight = document.getElementById('toolbar').offsetHeight;
+
+    let drawing = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    // Resize canvas
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight - toolbarHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Drawing
+    function startDraw(x, y) {
+      drawing = true;
+      lastX = x;
+      lastY = y;
+    }
+
+    function drawLine(x, y, color, size, isRemote = false) {
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = size;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.closePath();
+      lastX = x;
+      lastY = y;
+
+      if (!isRemote) {
+        socket.send(JSON.stringify({ x, y, color, size }));
+      }
+    }
+
+    function stopDraw() {
+      drawing = false;
+    }
+
+    canvas.addEventListener('mousedown', e => startDraw(e.offsetX, e.offsetY));
+    canvas.addEventListener('mousemove', e => {
+      if (drawing) drawLine(e.offsetX, e.offsetY, colorPicker.value, brushSize.value);
+    });
+    canvas.addEventListener('mouseup', stopDraw);
+    canvas.addEventListener('mouseleave', stopDraw);
+
+    // Touch support
+    canvas.addEventListener('touchstart', (e) => {
+      const touch = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      startDraw(touch.clientX - rect.left, touch.clientY - rect.top);
+    });
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      drawLine(touch.clientX - rect.left, touch.clientY - rect.top, colorPicker.value, brushSize.value);
+    }, { passive: false });
+    canvas.addEventListener('touchend', stopDraw);
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      socket.send(JSON.stringify({ clear: true }));
+    }
+
+    function exportPNG() {
+      const link = document.createElement('a');
+      link.download = 'canvas.png';
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+
+    async function exportPDF() {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF();
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', 10, 10, 180, 160);
+      pdf.save('canvas.pdf');
+    }
+
+    // WebSocket
+    const socket = new WebSocket('ws://localhost:3000');
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.clear) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      } else {
+        drawLine(data.x, data.y, data.color, data.size, true);
+      }
+    };
+  </script>
+</body>
+</html>
